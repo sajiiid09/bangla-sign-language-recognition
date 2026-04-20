@@ -1,0 +1,67 @@
+_wandb:
+    value:
+        cli_version: 0.24.1
+        e:
+            26uhq4md1duwwmohav86raxcsvm13ofw:
+                codePath: train_model.py
+                codePathLocal: train_model.py
+                cpu_count: 24
+                cpu_count_logical: 32
+                cudaVersion: "12.6"
+                disk:
+                    /:
+                        total: "999275098112"
+                        used: "634910511104"
+                email: aronno902553@gmail.com
+                executable: C:\Program Files\Python312\python.exe
+                gpu: NVIDIA GeForce RTX 4090
+                gpu_count: 1
+                gpu_nvidia:
+                    - architecture: Ada
+                      cudaCores: 16384
+                      memoryTotal: "25757220864"
+                      name: NVIDIA GeForce RTX 4090
+                      uuid: GPU-56b645d0-b6b4-7cfb-c214-ba9ed1fe5e20
+                host: DESKTOP-9G9VDD2
+                memory:
+                    total: "137197641728"
+                os: Windows-11-10.0.26200-SP0
+                program: C:\Users\T2430397\Downloads\bangla-sign-language-recognition-main\bangla-sign-language-recognition-main\new model\BdSL-Enhanced-SignNet\train_model.py
+                python: CPython 3.12.3
+                root: C:\Users\T2430397\Downloads\bangla-sign-language-recognition-main\bangla-sign-language-recognition-main\new model\BdSL-Enhanced-SignNet
+                startedAt: "2026-01-31T00:42:27.500399Z"
+                writerId: 26uhq4md1duwwmohav86raxcsvm13ofw
+        m: []
+        python_version: 3.12.3
+        t:
+            "1":
+                - 1
+                - 5
+                - 53
+            "2":
+                - 1
+                - 5
+                - 53
+            "3":
+                - 1
+                - 2
+                - 13
+                - 16
+            "4": 3.12.3
+            "5": 0.24.1
+            "8":
+                - 3
+            "12": 0.24.1
+            "13": windows-amd64
+batch_size:
+    value: 16
+epochs:
+    value: 100
+learning_rate:
+    value: 0.0003
+num_classes:
+    value: 55
+seed:
+    value: 42
+use_amp:
+    value: true
