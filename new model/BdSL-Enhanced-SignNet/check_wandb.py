@@ -8,10 +8,14 @@ Verifies W&B is properly configured and ready to use.
 import os
 import sys
 from pathlib import Path
+import re
 
 
 def check_wandb():
     """Check W&B installation and configuration."""
+    script_dir = Path(__file__).resolve().parent
+    repo_root = script_dir.parents[1]
+
     print("\n" + "=" * 70)
     print("🔍 W&B Configuration Check")
     print("=" * 70)
@@ -38,7 +42,12 @@ def check_wandb():
     
     # Check 3: API Key
     print("\n3️⃣  W&B API Key Configuration:")
-    env_file = Path(".env")
+    env_file_candidates = [
+        repo_root / ".env",
+        script_dir / ".env",
+        Path(".env"),
+    ]
+    env_file = next((p for p in env_file_candidates if p.exists()), None)
     env_key = None
     file_key = None
     
@@ -46,7 +55,7 @@ def check_wandb():
     env_key = os.getenv("WANDB_API_KEY")
     
     # Check .env file
-    if env_file.exists():
+    if env_file is not None:
         with open(env_file, "r") as f:
             for line in f:
                 if line.startswith("WANDB_API_KEY="):
@@ -69,7 +78,7 @@ def check_wandb():
     try:
         from wandb.errors import CommError
         # Just try to validate the key format
-        if len(api_key) > 20 and all(c in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789' for c in api_key):
+        if len(api_key) > 20 and re.fullmatch(r"[A-Za-z0-9_-]+", api_key):
             print("   ✅ API key format looks valid")
         else:
             print("   ⚠️  API key format might be invalid")
@@ -78,8 +87,12 @@ def check_wandb():
     
     # Check 5: Training Script
     print("\n5️⃣  Training Script Setup:")
-    train_script = Path("train_signet_v2_optimized.py")
-    if train_script.exists():
+    train_candidates = [
+        script_dir / "train_signet_v2_optimized.py",
+        script_dir / "train_signet_v2.py",
+    ]
+    train_script = next((p for p in train_candidates if p.exists()), None)
+    if train_script is not None:
         try:
             with open(train_script, "r", encoding="utf-8") as f:
                 content = f.read()
@@ -95,7 +108,7 @@ def check_wandb():
     
     # Check 6: Setup Script
     print("\n6️⃣  Setup Script Available:")
-    setup_script = Path("setup_wandb.py")
+    setup_script = script_dir / "setup_wandb.py"
     if setup_script.exists():
         print("   ✅ setup_wandb.py available")
     else:
