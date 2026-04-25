@@ -6,6 +6,7 @@ Adapted for local directory structure with processed/multimodal/ data
 import torch
 import torch.nn as nn
 from pathlib import Path
+import argparse
 import json
 import numpy as np
 import random
@@ -60,14 +61,42 @@ def parse_metadata(filename: str):
     }
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Train SignNet-V2 for BdSL recognition"
+    )
+    parser.add_argument("--base_dir", type=str, default=".")
+    parser.add_argument(
+        "--processed_dir",
+        type=str,
+        default="Data/processed/new_model",
+        help="Directory containing train/val/test split files and normalized data",
+    )
+    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--learning_rate", type=float, default=3e-4)
+    parser.add_argument("--use_amp", action="store_true", default=True)
+    parser.add_argument("--seed", type=int, default=42)
+    return parser.parse_args()
+
+
 def main():
     """Main training function."""
+    args = parse_args()
+
     # Set random seeds
-    set_seeds(42)
+    set_seeds(args.seed)
 
     # Setup paths
-    base_path = Path(".")
-    processed_dir = base_path / "processed"
+    script_dir = Path(__file__).resolve().parent
+    repo_root = script_dir.parents[1]
+
+    if args.base_dir == ".":
+        base_path = repo_root
+    else:
+        base_path = Path(args.base_dir).resolve()
+
+    processed_dir = (base_path / args.processed_dir).resolve()
     checkpoint_dir = processed_dir / "checkpoints" / "signet_v2"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
@@ -77,10 +106,10 @@ def main():
     print(f"   Working directory: {base_path.absolute()}")
     print(f"   Checkpoint directory: {checkpoint_dir}")
     print(f"   Configuration:")
-    print(f"      - Epochs: 100")
-    print(f"      - Batch size: 16")
-    print(f"      - Learning rate: 3e-4")
-    print(f"      - Mixed precision: True")
+    print(f"      - Epochs: {args.epochs}")
+    print(f"      - Batch size: {args.batch_size}")
+    print(f"      - Learning rate: {args.learning_rate}")
+    print(f"      - Mixed precision: {args.use_amp}")
 
     # Load sample lists
     train_samples = load_sample_list(processed_dir / "train_samples.txt")
@@ -137,14 +166,14 @@ def main():
     try:
         wandb.init(
             project="bangla-sign-language-recognition",
-            name=f"SignNet-V2_{len(train_samples)}samples_100epochs",
+            name=f"SignNet-V2_{len(train_samples)}samples_{args.epochs}epochs",
             config={
-                "epochs": 100,
-                "batch_size": 16,
-                "learning_rate": 3e-4,
+                "epochs": args.epochs,
+                "batch_size": args.batch_size,
+                "learning_rate": args.learning_rate,
                 "num_classes": num_classes,
-                "seed": 42,
-                "use_amp": True,
+                "seed": args.seed,
+                "use_amp": args.use_amp,
             },
         )
         print("✅ W&B initialized")
@@ -154,8 +183,8 @@ def main():
     # Create data config
     data_config = DataConfig(
         base_dir=str(base_path),
-        processed_dir="processed",
-        normalized_dir=str(processed_dir / "multimodal"),  # Use multimodal as normalized
+        processed_dir=args.processed_dir,
+        normalized_dir=str(processed_dir / "normalized"),
         checkpoint_dir=str(checkpoint_dir),
         max_seq_length=150,
         augmentation=True,
@@ -168,7 +197,7 @@ def main():
         val_samples=val_samples,
         test_samples=test_samples,
         word_to_label=word_to_label,
-        batch_size=16,
+        batch_size=args.batch_size,
         num_workers=2,
         use_hands=False,
         use_face=False,
@@ -190,15 +219,15 @@ def main():
         num_heads=8,
         d_ff=1024,
         dropout=0.3,
-        epochs=100,
-        batch_size=16,
-        learning_rate=3e-4,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        learning_rate=args.learning_rate,
         weight_decay=0.1,
         label_smoothing=0.2,
         early_stopping_patience=15,
         gradient_clip_norm=0.5,
         gradient_accumulation_steps=1,
-        use_amp=True,
+        use_amp=args.use_amp,
         mixup_alpha=0.0,
         checkpoint_dir=str(checkpoint_dir),
     )
