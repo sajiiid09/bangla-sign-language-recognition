@@ -1,0 +1,54 @@
+{
+  "os":  "Windows-11-10.0.26200-SP0",
+  "python":  "CPython 3.14.4",
+  "startedAt":  "2026-04-26T12:26:23.749428Z",
+  "args":  [
+    "--base_dir",
+    "c:/Users/T2430397/Documents/bangla-sign-language-recognition-main",
+    "--processed_dir",
+    "Data/processed/new_model",
+    "--epochs",
+    "3",
+    "--batch_size",
+    "16",
+    "--learning_rate",
+    "3e-4",
+    "--model_name",
+    "SignNet-V2-Optimized-Sanity"
+  ],
+  "program":  "C:\\Users\\T2430397\\Documents\\bangla-sign-language-recognition-main\\new model\\BdSL-Enhanced-SignNet\\train_signet_v2_optimized.py",
+  "codePath":  "new model\\BdSL-Enhanced-SignNet\\train_signet_v2_optimized.py",
+  "codePathLocal":  "new model\\BdSL-Enhanced-SignNet\\train_signet_v2_optimized.py",
+  "git":  {
+    "remote":  "https://github.com/sajiiid09/bangla-sign-language-recognition.git",
+    "commit":  "aebd326d667b45d100fc1fe13cc7cec9017799d1"
+  },
+  "email":  "aronno902553@gmail.com",
+  "root":  "C:\\Users\\T2430397\\Documents\\bangla-sign-language-recognition-main",
+  "host":  "CSE-12B21L-D20",
+  "executable":  "C:\\Users\\T2430397\\Documents\\bangla-sign-language-recognition-main\\.venv\\Scripts\\python.exe",
+  "cpu_count":  20,
+  "cpu_count_logical":  28,
+  "gpu":  "NVIDIA GeForce RTX 4080 SUPER",
+  "gpu_count":  1,
+  "disk":  {
+    "/":  {
+      "total":  "999275098112",
+      "used":  "209289588736"
+    }
+  },
+  "memory":  {
+    "total":  "68470374400"
+  },
+  "gpu_nvidia":  [
+    {
+      "name":  "NVIDIA GeForce RTX 4080 SUPER",
+      "memoryTotal":  "17171480576",
+      "cudaCores":  10240,
+      "architecture":  "Ada",
+      "uuid":  "GPU-2a5c25d0-1f73-919b-fd8b-f6f0df709aaf"
+    }
+  ],
+  "cudaVersion":  "13.1",
+  "writerId":  "6q7ag36f9y25swornzv8monl0u00e18p"
+}

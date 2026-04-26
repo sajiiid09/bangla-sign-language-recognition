@@ -1,0 +1,83 @@
+_wandb:
+    value:
+        cli_version: 0.26.1
+        e:
+            eju35vfdmhu04hrd0c0zyn8it1qc72nk:
+                args:
+                    - --base_dir
+                    - c:/Users/T2430397/Documents/bangla-sign-language-recognition-main
+                    - --processed_dir
+                    - Data/processed/new_model
+                    - --epochs
+                    - "3"
+                    - --batch_size
+                    - "16"
+                    - --learning_rate
+                    - "3e-4"
+                    - --model_name
+                    - SignNet-V2-Optimized-CUDA-Rerun
+                codePath: new model\BdSL-Enhanced-SignNet\train_signet_v2_optimized.py
+                codePathLocal: new model\BdSL-Enhanced-SignNet\train_signet_v2_optimized.py
+                cpu_count: 20
+                cpu_count_logical: 28
+                cudaVersion: "13.1"
+                disk:
+                    /:
+                        total: "999275098112"
+                        used: "216745259008"
+                email: aronno902553@gmail.com
+                executable: C:\Users\T2430397\Documents\bangla-sign-language-recognition-main\.venv\Scripts\python.exe
+                git:
+                    commit: aebd326d667b45d100fc1fe13cc7cec9017799d1
+                    remote: https://github.com/sajiiid09/bangla-sign-language-recognition.git
+                gpu: NVIDIA GeForce RTX 4080 SUPER
+                gpu_count: 1
+                gpu_nvidia:
+                    - architecture: Ada
+                      cudaCores: 10240
+                      memoryTotal: "17171480576"
+                      name: NVIDIA GeForce RTX 4080 SUPER
+                      uuid: GPU-2a5c25d0-1f73-919b-fd8b-f6f0df709aaf
+                host: CSE-12B21L-D20
+                memory:
+                    total: "68470374400"
+                os: Windows-11-10.0.26200-SP0
+                program: C:\Users\T2430397\Documents\bangla-sign-language-recognition-main\new model\BdSL-Enhanced-SignNet\train_signet_v2_optimized.py
+                python: CPython 3.14.4
+                root: C:\Users\T2430397\Documents\bangla-sign-language-recognition-main
+                startedAt: "2026-04-26T12:37:32.910740Z"
+                writerId: eju35vfdmhu04hrd0c0zyn8it1qc72nk
+        m: []
+        python_version: 3.14.4
+        t:
+            "1":
+                - 1
+                - 5
+                - 53
+            "2":
+                - 1
+                - 5
+                - 53
+            "3":
+                - 1
+                - 2
+                - 13
+                - 16
+            "4": 3.14.4
+            "5": 0.26.1
+            "8":
+                - 3
+            "12": 0.26.1
+            "13": windows-amd64
+batch_size:
+    value: 16
+epochs:
+    value: 3
+learning_rate:
+    value: 0.0003
+num_classes:
+    value: 67
+seed:
+    value: 42
+use_amp:
+    value: true
