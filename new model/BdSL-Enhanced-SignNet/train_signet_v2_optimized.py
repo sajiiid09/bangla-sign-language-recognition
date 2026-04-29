@@ -58,6 +58,33 @@ def load_sample_list(file_path: str) -> List[str]:
         return [line.strip() for line in f if line.strip()]
 
 
+def resolve_split_paths(processed_dir: Path, split_mode: str) -> Dict[str, Path]:
+    """Resolve split sample and summary paths for a split mode."""
+    suffix_map = {
+        "active": "",
+        "sanity": ".sanity",
+        "signer_holdout": ".signer_holdout",
+    }
+    suffix = suffix_map[split_mode]
+
+    return {
+        "train": processed_dir / f"train_samples{suffix}.txt",
+        "val": processed_dir / f"val_samples{suffix}.txt",
+        "test": processed_dir / f"test_samples{suffix}.txt",
+        "summary": processed_dir / f"split_summary{suffix}.json"
+        if suffix
+        else processed_dir / "split_summary.json",
+    }
+
+
+def load_split_summary(summary_path: Path) -> Optional[Dict]:
+    """Load split summary JSON if present."""
+    if not summary_path.exists():
+        return None
+    with open(summary_path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
 def create_word_mapping(samples: List[Dict]) -> tuple:
     """Create word to label and label to word mappings."""
     all_words = sorted(set([s["word"] for s in samples]))
@@ -75,12 +102,14 @@ def parse_metadata(video_path: str) -> Dict:
     if len(parts) != 5:
         return None
 
+    word, signer, session, repetition, grammar = [p.strip() for p in parts]
+
     return {
-        "word": parts[0],
-        "signer": parts[1],
-        "session": parts[2],
-        "repetition": parts[3],
-        "grammar": parts[4],
+        "word": word,
+        "signer": signer,
+        "session": session,
+        "repetition": repetition,
+        "grammar": grammar,
         "full_path": video_path,
     }
 
@@ -103,7 +132,18 @@ def main():
         "--model_name", type=str, default="SignNet-V2-Optimized", help="Model name for logging"
     )
     parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument(
+        "--num_workers",
+        type=int,
+        default=-1,
+        help="DataLoader workers; use -1 for auto (0 for deterministic single-process loading)",
+    )
     parser.add_argument("--learning_rate", type=float, default=3e-4)
+    parser.add_argument("--dropout", type=float, default=0.2)
+    parser.add_argument("--weight_decay", type=float, default=0.02)
+    parser.add_argument("--label_smoothing", type=float, default=0.05)
+    parser.add_argument("--early_stopping_patience", type=int, default=40)
+    parser.add_argument("--mixup_alpha", type=float, default=0.0)
     parser.add_argument("--use_amp", action="store_true", default=True)
     parser.add_argument(
         "--wandb_project", type=str, default="bangla-sign-language-recognition"
@@ -111,6 +151,32 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--resume", type=str, default=None, help="Path to checkpoint to resume from"
+    )
+    parser.add_argument(
+        "--split_mode",
+        type=str,
+        choices=["active", "sanity", "signer_holdout"],
+        default="active",
+        help="Which precomputed split artifacts to use",
+    )
+    parser.add_argument(
+        "--loader_error_mode",
+        type=str,
+        choices=["permissive", "strict"],
+        default="permissive",
+        help="Data loader behavior when a sample fails to load",
+    )
+    parser.add_argument(
+        "--gradient_accumulation_steps",
+        type=int,
+        default=1,
+        help="Number of mini-batches to accumulate before each optimizer step",
+    )
+    parser.add_argument(
+        "--checkpoint_subdir",
+        type=str,
+        default="signet_v2",
+        help="Subdirectory name under processed_dir/checkpoints for this run",
     )
 
     args = parser.parse_args()
@@ -121,7 +187,7 @@ def main():
     # Setup paths
     base_path = Path(args.base_dir)
     processed_dir = base_path / args.processed_dir
-    checkpoint_dir = processed_dir / "checkpoints" / "signet_v2"
+    checkpoint_dir = processed_dir / "checkpoints" / args.checkpoint_subdir
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"\n{'=' * 70}")
@@ -131,18 +197,39 @@ def main():
     print(f"   Checkpoint directory: {checkpoint_dir}")
     print(f"   Epochs: {args.epochs}")
     print(f"   Batch size: {args.batch_size}")
+    print(f"   Num workers: {args.num_workers}")
     print(f"   Learning rate: {args.learning_rate}")
+    print(f"   Dropout: {args.dropout}")
+    print(f"   Weight decay: {args.weight_decay}")
+    print(f"   Label smoothing: {args.label_smoothing}")
+    print(f"   Early stopping patience: {args.early_stopping_patience}")
+    print(f"   Mixup alpha: {args.mixup_alpha}")
     print(f"   Mixed precision: {args.use_amp}")
+    print(f"   Split mode: {args.split_mode}")
+    print(f"   Loader error mode: {args.loader_error_mode}")
+    print(f"   Gradient accumulation: {args.gradient_accumulation_steps}")
 
     # Load sample lists
-    train_samples = load_sample_list(processed_dir / "train_samples.txt")
-    val_samples = load_sample_list(processed_dir / "val_samples.txt")
-    test_samples = load_sample_list(processed_dir / "test_samples.txt")
+    split_paths = resolve_split_paths(processed_dir, args.split_mode)
+    split_summary = load_split_summary(split_paths["summary"])
+
+    for split_name in ("train", "val", "test"):
+        if not split_paths[split_name].exists():
+            raise FileNotFoundError(
+                f"Missing split file for mode '{args.split_mode}': {split_paths[split_name]}"
+            )
+
+    train_samples = load_sample_list(split_paths["train"])
+    val_samples = load_sample_list(split_paths["val"])
+    test_samples = load_sample_list(split_paths["test"])
 
     print(f"\n📊 Dataset splits:")
     print(f"   Train: {len(train_samples)} samples")
     print(f"   Val: {len(val_samples)} samples")
     print(f"   Test: {len(test_samples)} samples")
+    print(f"   Split summary: {split_paths['summary']}")
+    if split_summary is not None:
+        print(f"   Split summary mode: {split_summary.get('mode', 'unknown')}")
 
     # Parse metadata and create word mapping
     train_metadata = [parse_metadata(s) for s in train_samples]
@@ -196,14 +283,31 @@ def main():
         wandb.init(
             project=args.wandb_project,
             entity=None,
-            name=f"SignNet-V2_{len(train_samples)}samples_{args.epochs}epochs",
+            name=(
+                f"SignNet-V2_{args.split_mode}_{len(train_samples)}samples_"
+                f"{args.epochs}epochs"
+            ),
             config={
                 "epochs": args.epochs,
                 "batch_size": args.batch_size,
                 "learning_rate": args.learning_rate,
+                "dropout": args.dropout,
+                "weight_decay": args.weight_decay,
+                "label_smoothing": args.label_smoothing,
+                "early_stopping_patience": args.early_stopping_patience,
+                "mixup_alpha": args.mixup_alpha,
                 "num_classes": num_classes,
                 "seed": args.seed,
                 "use_amp": args.use_amp,
+                "split_mode": args.split_mode,
+                "split_summary_path": str(split_paths["summary"]),
+                "split_summary_exists": split_summary is not None,
+                "split_signer_distribution": split_summary.get("signer_distribution", {})
+                if split_summary is not None
+                else {},
+                "loader_error_mode": args.loader_error_mode,
+                "gradient_accumulation_steps": max(1, args.gradient_accumulation_steps),
+                "checkpoint_subdir": args.checkpoint_subdir,
             },
         )
         print("✅ WandB initialized")
@@ -219,10 +323,14 @@ def main():
         checkpoint_dir=str(checkpoint_dir),
         max_seq_length=150,
         augmentation=True,
+        loader_error_mode=args.loader_error_mode,
     )
 
     # Create data loaders (Note: dataset only has body_pose)
-    num_workers = 0 if len(train_samples) <= 20 else 2
+    if args.num_workers >= 0:
+        num_workers = args.num_workers
+    else:
+        num_workers = 0 if len(train_samples) <= 20 else 2
     train_loader, val_loader, test_loader = create_data_loaders(
         config=data_config,
         train_samples=train_samples,
@@ -231,7 +339,7 @@ def main():
         word_to_label=word_to_label,
         batch_size=args.batch_size,
         num_workers=num_workers,
-        use_hands=False,
+        use_hands=True,
         use_face=False,
     )
 
@@ -239,6 +347,28 @@ def main():
     print(f"   Train batches: {len(train_loader)}")
     print(f"   Val batches: {len(val_loader)}")
     print(f"   Test batches: {len(test_loader)}")
+
+    train_malformed = getattr(train_loader.dataset, "malformed_metadata_count", 0)
+    val_malformed = getattr(val_loader.dataset, "malformed_metadata_count", 0)
+    test_malformed = getattr(test_loader.dataset, "malformed_metadata_count", 0)
+    print(
+        "   Malformed sample names skipped: "
+        f"train={train_malformed}, val={val_malformed}, test={test_malformed}"
+    )
+
+    try:
+        wandb.log(
+            {
+                "data/train_batches": len(train_loader),
+                "data/val_batches": len(val_loader),
+                "data/test_batches": len(test_loader),
+                "data/train_malformed_names": train_malformed,
+                "data/val_malformed_names": val_malformed,
+                "data/test_malformed_names": test_malformed,
+            }
+        )
+    except Exception:
+        pass
 
     # Create training config
     training_config = TrainingConfig(
@@ -250,21 +380,21 @@ def main():
         num_encoder_layers=6,       # 1.5× more layers for depth
         num_heads=8,
         d_ff=1024,               # 2× wider feed-forward
-        dropout=0.3,               # More regularization
+        dropout=args.dropout,
         epochs=args.epochs,
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
-        weight_decay=0.1,           # Stronger weight decay
-        label_smoothing=0.2,        # More smoothing for better generalization
-        early_stopping_patience=15,  # More aggressive early stopping
+        weight_decay=args.weight_decay,
+        label_smoothing=args.label_smoothing,
+        early_stopping_patience=args.early_stopping_patience,
         gradient_clip_norm=0.5,      # More aggressive clipping
-        gradient_accumulation_steps=1,
+        gradient_accumulation_steps=max(1, args.gradient_accumulation_steps),
         use_amp=args.use_amp,
-        mixup_alpha=0.0,           # Disabled for clean baseline
+        mixup_alpha=args.mixup_alpha,
         checkpoint_dir=str(checkpoint_dir),
     )
 
-    # Initialize model (Note: dataset only has body_pose)
+    # Initialize model (Note: dataset now includes hand landmarks)
     model = SignNetV2(
         num_classes=num_classes,
         body_dim=data_config.body_dim,
@@ -276,8 +406,8 @@ def main():
         d_ff=training_config.d_ff,
         dropout=training_config.dropout,
         max_seq_length=data_config.max_seq_length,
-        use_face=False,  # Dataset only has body_pose
-        use_hands=False,  # Dataset only has body_pose
+        use_face=False,
+        use_hands=True,
     )
 
 # Initialize OPTIMIZED model (Note: dataset only has body_pose)
@@ -299,8 +429,11 @@ def main():
     print(f"   Model size: {params['total'] * 4 / 1024**2:.2f} MB")
 
     # Watch model with WandB
-    wandb.watch(model, log_freq=100)
-    wandb.log({"model/total_parameters": params['total']})
+    try:
+        wandb.watch(model, log_freq=100)
+        wandb.log({"model/total_parameters": params["total"]})
+    except Exception:
+        pass
 
     # Setup trainer
     trainer = SignNetTrainer(
@@ -324,26 +457,36 @@ def main():
     )
     test_mask = torch.ones(2, data_config.max_seq_length).to(device)
 
+    # Prepare test hand inputs if model uses hands
+    test_left_hand = None
+    test_right_hand = None
+    if model.use_hands:
+        test_left_hand = torch.randn(2, data_config.max_seq_length, data_config.hand_dim).to(device)
+        test_right_hand = torch.randn(2, data_config.max_seq_length, data_config.hand_dim).to(device)
+
     with torch.no_grad():
         if device.type == "cuda" and args.use_amp:
-            with torch.cuda.amp.autocast():
+            with torch.amp.autocast(device_type=device.type, enabled=True):
                 test_output = model(
                     test_input,  # body_pose
-                    None,  # left_hand
-                    None,  # right_hand
+                    test_left_hand,  # left_hand
+                    test_right_hand,  # right_hand
                     None,  # face
                     test_mask,  # attention_mask
                 )
         else:
             test_output = model(
                 test_input,  # body_pose
-                None,  # left_hand
-                None,  # right_hand
+                test_left_hand,  # left_hand
+                test_right_hand,  # right_hand
                 None,  # face
                 test_mask,  # attention_mask
             )
 
     print(f"   Input shape: {test_input.shape}")
+    if test_left_hand is not None:
+        print(f"   Left hand shape: {test_left_hand.shape}")
+        print(f"   Right hand shape: {test_right_hand.shape}")
     print(f"   Output shape: {test_output.shape}")
     print(f"   ✅ Forward pass successful!")
 
@@ -416,6 +559,8 @@ def main():
     )
     print(f"\n🌐 WandB:")
     print(f"   Project: {args.wandb_project}")
+    print(f"   Split mode: {args.split_mode}")
+    print(f"   Loader error mode: {args.loader_error_mode}")
     print(f"   All metrics and artifacts logged")
     print(f"{'=' * 70}\n")
 
