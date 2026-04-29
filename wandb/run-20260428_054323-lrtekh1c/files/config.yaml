@@ -1,0 +1,131 @@
+_wandb:
+    value:
+        cli_version: 0.26.1
+        e:
+            fuqlf8dgv9pph92ncr9ir3k96bes97n3:
+                args:
+                    - --base_dir
+                    - C:/Users/T2430397/Documents/bangla-sign-language-recognition-main
+                    - --split_mode
+                    - sanity
+                    - --epochs
+                    - "20"
+                    - --batch_size
+                    - "16"
+                    - --num_workers
+                    - "0"
+                    - --early_stopping_patience
+                    - "8"
+                    - --dropout
+                    - "0.2"
+                    - --weight_decay
+                    - "0.02"
+                    - --label_smoothing
+                    - "0.05"
+                    - --use_amp
+                    - --checkpoint_subdir
+                    - signet_v2_sanity_hands_fixed
+                codePath: new model\BdSL-Enhanced-SignNet\train_signet_v2_optimized.py
+                codePathLocal: new model\BdSL-Enhanced-SignNet\train_signet_v2_optimized.py
+                cpu_count: 20
+                cpu_count_logical: 28
+                cudaVersion: "13.1"
+                disk:
+                    /:
+                        total: "999275098112"
+                        used: "246673469440"
+                email: aronno902553@gmail.com
+                executable: C:\Users\T2430397\Documents\bangla-sign-language-recognition-main\.venv\Scripts\python.exe
+                git:
+                    commit: 873fd4e95084aa8a344e7f2de087d52a70c5b376
+                    remote: https://github.com/sajiiid09/bangla-sign-language-recognition.git
+                gpu: NVIDIA GeForce RTX 4080 SUPER
+                gpu_count: 1
+                gpu_nvidia:
+                    - architecture: Ada
+                      cudaCores: 10240
+                      memoryTotal: "17171480576"
+                      name: NVIDIA GeForce RTX 4080 SUPER
+                      uuid: GPU-2a5c25d0-1f73-919b-fd8b-f6f0df709aaf
+                host: CSE-12B21L-D20
+                memory:
+                    total: "68470374400"
+                os: Windows-11-10.0.26200-SP0
+                program: C:\Users\T2430397\Documents\bangla-sign-language-recognition-main\new model\BdSL-Enhanced-SignNet\train_signet_v2_optimized.py
+                python: CPython 3.14.4
+                root: C:\Users\T2430397\Documents\bangla-sign-language-recognition-main
+                startedAt: "2026-04-28T12:43:23.040774Z"
+                writerId: fuqlf8dgv9pph92ncr9ir3k96bes97n3
+        m: []
+        python_version: 3.14.4
+        t:
+            "1":
+                - 1
+                - 5
+                - 53
+            "2":
+                - 1
+                - 5
+                - 53
+            "3":
+                - 1
+                - 2
+                - 13
+                - 16
+            "4": 3.14.4
+            "5": 0.26.1
+            "8":
+                - 3
+            "12": 0.26.1
+            "13": windows-amd64
+batch_size:
+    value: 16
+checkpoint_subdir:
+    value: signet_v2_sanity_hands_fixed
+dropout:
+    value: 0.2
+early_stopping_patience:
+    value: 8
+epochs:
+    value: 20
+gradient_accumulation_steps:
+    value: 1
+label_smoothing:
+    value: 0.05
+learning_rate:
+    value: 0.0003
+loader_error_mode:
+    value: permissive
+mixup_alpha:
+    value: 0
+num_classes:
+    value: 62
+seed:
+    value: 42
+split_mode:
+    value: sanity
+split_signer_distribution:
+    value:
+        test:
+            S02: 74
+            S04: 2
+            S05: 123
+            S10: 81
+        train:
+            S02: 414
+            S04: 16
+            S05: 909
+            S10: 460
+        val:
+            S02: 54
+            S04: 2
+            S05: 111
+            S10: 60
+split_summary_exists:
+    value: true
+split_summary_path:
+    value: C:\Users\T2430397\Documents\bangla-sign-language-recognition-main\Data\processed\new_model\split_summary.sanity.json
+use_amp:
+    value: true
+weight_decay:
+    value: 0.02

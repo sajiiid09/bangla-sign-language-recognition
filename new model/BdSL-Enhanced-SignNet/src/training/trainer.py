@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from tqdm import tqdm
 import wandb
 import time
+import math
 
 
 @dataclass
@@ -132,9 +133,9 @@ class Lookahead(Optimizer):
                 # Update fast weights to match slow weights
                 p.data.copy_(slow_p)
 
-    def zero_grad(self):
+    def zero_grad(self, *args, **kwargs):
         """Zero gradients."""
-        self.optimizer.zero_grad()
+        self.optimizer.zero_grad(*args, **kwargs)
 
 
 class Mixup:
@@ -256,16 +257,16 @@ class SignNetTrainer:
         # Lookahead optimizer
         self.optimizer = Lookahead(self.optimizer, la_steps=5, alpha=0.5)
 
-        # Learning rate scheduler
-        total_steps = (
-            len(train_loader) * config.epochs // config.gradient_accumulation_steps
+        # Learning rate scheduler (tuned: lower max_lr, longer warmup for stability)
+        self.steps_per_epoch = max(
+            1, math.ceil(len(train_loader) / config.gradient_accumulation_steps)
         )
         self.scheduler = OneCycleLR(
             self.optimizer,
-            max_lr=config.learning_rate * 3,
+            max_lr=config.learning_rate * 2,
             epochs=config.epochs,
-            steps_per_epoch=len(train_loader) // config.gradient_accumulation_steps,
-            pct_start=0.1,
+            steps_per_epoch=self.steps_per_epoch,
+            pct_start=0.2,
             anneal_strategy="cos",
             div_factor=3.0,
             final_div_factor=10.0,
@@ -287,9 +288,13 @@ class SignNetTrainer:
             "val_loss": [],
             "val_acc": [],
             "learning_rate": [],
+            "optimizer_steps": [],
+            "train_loader_failures": [],
+            "val_loader_failures": [],
         }
+        self.last_epoch_diagnostics: Dict[str, Any] = {}
 
-    def train_epoch(self) -> Tuple[float, float]:
+    def train_epoch(self) -> Tuple[float, float, Dict[str, Any]]:
         """Train for one epoch."""
         self.model.train()
 
@@ -298,6 +303,10 @@ class SignNetTrainer:
         total_samples = 0
 
         accumulation_steps = self.config.gradient_accumulation_steps
+        optimizer_steps = 0
+        loader_failures = 0
+        expected_optimizer_steps = self.steps_per_epoch
+        self.optimizer.zero_grad(set_to_none=True)
 
         progress_bar = tqdm(
             self.train_loader, desc=f"Epoch {self.current_epoch + 1}", leave=False
@@ -307,7 +316,10 @@ class SignNetTrainer:
             # Unpack batch
             body_pose = batch["body_pose"].to(self.device)
             attention_mask = batch["attention_mask"].to(self.device)
-            labels = batch["label"].squeeze().to(self.device)
+            labels = batch["label"].to(self.device).long().view(-1)
+
+            if "load_failed" in batch:
+                loader_failures += int(batch["load_failed"].view(-1).sum().item())
 
             left_hand = batch.get("left_hand")
             right_hand = batch.get("right_hand")
@@ -330,7 +342,7 @@ class SignNetTrainer:
 
             # Forward pass with mixed precision
             if self.scaler is not None:
-                with torch.cuda.amp.autocast():
+                with torch.amp.autocast(device_type=self.device.type, enabled=True):
                     logits = self.model(
                         body_pose, left_hand, right_hand, face, attention_mask
                     )
@@ -348,7 +360,10 @@ class SignNetTrainer:
                 self.scaler.scale(loss).backward()
 
                 # Gradient clipping
-                if (batch_idx + 1) % accumulation_steps == 0:
+                should_step = (batch_idx + 1) % accumulation_steps == 0 or (
+                    batch_idx + 1
+                ) == len(self.train_loader)
+                if should_step:
                     self.scaler.unscale_(self.optimizer)
                     torch.nn.utils.clip_grad_norm_(
                         self.model.parameters(), self.config.gradient_clip_norm
@@ -357,6 +372,8 @@ class SignNetTrainer:
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
                     self.scheduler.step()
+                    self.optimizer.zero_grad(set_to_none=True)
+                    optimizer_steps += 1
 
             else:
                 logits = self.model(
@@ -373,12 +390,17 @@ class SignNetTrainer:
                 loss = loss / accumulation_steps
                 loss.backward()
 
-                if (batch_idx + 1) % accumulation_steps == 0:
+                should_step = (batch_idx + 1) % accumulation_steps == 0 or (
+                    batch_idx + 1
+                ) == len(self.train_loader)
+                if should_step:
                     torch.nn.utils.clip_grad_norm_(
                         self.model.parameters(), self.config.gradient_clip_norm
                     )
                     self.optimizer.step()
                     self.scheduler.step()
+                    self.optimizer.zero_grad(set_to_none=True)
+                    optimizer_steps += 1
 
             # Metrics
             with torch.no_grad():
@@ -406,25 +428,39 @@ class SignNetTrainer:
             
             # Log batch-level metrics to WandB every N batches
             if (batch_idx + 1) % 5 == 0:
-                wandb.log({
-                    "train/batch_loss": loss.item() * accumulation_steps,
-                    "train/batch_accuracy": correct / len(labels),
-                    "train/batch": batch_idx + 1,
-                })
+                try:
+                    wandb.log(
+                        {
+                            "train/batch_loss": loss.item() * accumulation_steps,
+                            "train/batch_accuracy": correct / len(labels),
+                            "train/batch": batch_idx + 1,
+                            "train/optimizer_steps_so_far": optimizer_steps,
+                        }
+                    )
+                except Exception:
+                    pass
 
         avg_loss = total_loss / total_samples
         accuracy = total_correct / total_samples
 
-        return avg_loss, accuracy
+        diagnostics = {
+            "optimizer_steps": optimizer_steps,
+            "expected_optimizer_steps": expected_optimizer_steps,
+            "loader_failures": loader_failures,
+        }
+        self.last_epoch_diagnostics = diagnostics
+
+        return avg_loss, accuracy, diagnostics
 
     @torch.no_grad()
-    def validate(self) -> Tuple[float, float]:
+    def validate(self) -> Tuple[float, float, Dict[str, Any]]:
         """Validate the model."""
         self.model.eval()
 
         total_loss = 0.0
         total_correct = 0
         total_samples = 0
+        loader_failures = 0
 
         all_predictions = []
         all_labels = []
@@ -433,7 +469,10 @@ class SignNetTrainer:
             # Unpack batch
             body_pose = batch["body_pose"].to(self.device)
             attention_mask = batch["attention_mask"].to(self.device)
-            labels = batch["label"].squeeze().to(self.device)
+            labels = batch["label"].to(self.device).long().view(-1)
+
+            if "load_failed" in batch:
+                loader_failures += int(batch["load_failed"].view(-1).sum().item())
 
             left_hand = batch.get("left_hand")
             right_hand = batch.get("right_hand")
@@ -448,7 +487,7 @@ class SignNetTrainer:
 
             # Forward pass
             if self.scaler is not None:
-                with torch.cuda.amp.autocast():
+                with torch.amp.autocast(device_type=self.device.type, enabled=True):
                     logits = self.model(
                         body_pose, left_hand, right_hand, face, attention_mask
                     )
@@ -472,7 +511,9 @@ class SignNetTrainer:
         avg_loss = total_loss / total_samples
         accuracy = total_correct / total_samples
 
-        return avg_loss, accuracy
+        diagnostics = {"loader_failures": loader_failures}
+
+        return avg_loss, accuracy, diagnostics
 
     def save_checkpoint(self, is_best: bool = False, is_intermediate: bool = False):
         """Save model checkpoint."""
@@ -545,17 +586,26 @@ class SignNetTrainer:
         print(f"   Device: {self.device}")
         print(f"   Batch size: {self.config.batch_size}")
         print(f"   Learning rate: {self.config.learning_rate}")
+        print(f"   Gradient accumulation: {self.config.gradient_accumulation_steps}")
+        print(f"   Expected optimizer steps/epoch: {self.steps_per_epoch}")
         print(f"   Mixed precision: {self.config.use_amp}")
         print(f"   Checkpoint directory: {self.checkpoint_dir}")
+
+        train_malformed = getattr(self.train_loader.dataset, "malformed_metadata_count", 0)
+        val_malformed = getattr(self.val_loader.dataset, "malformed_metadata_count", 0)
+        if train_malformed or val_malformed:
+            print(
+                f"   Malformed sample names skipped -> train: {train_malformed}, val: {val_malformed}"
+            )
 
         for epoch in range(start_epoch, max_epochs):
             self.current_epoch = epoch
 
             # Train
-            train_loss, train_acc = self.train_epoch()
+            train_loss, train_acc, train_diag = self.train_epoch()
 
             # Validate
-            val_loss, val_acc = self.validate()
+            val_loss, val_acc, val_diag = self.validate()
 
             # Get learning rate
             current_lr = self.scheduler.get_last_lr()[0]
@@ -566,6 +616,9 @@ class SignNetTrainer:
             self.history["val_loss"].append(val_loss)
             self.history["val_acc"].append(val_acc)
             self.history["learning_rate"].append(current_lr)
+            self.history["optimizer_steps"].append(train_diag["optimizer_steps"])
+            self.history["train_loader_failures"].append(train_diag["loader_failures"])
+            self.history["val_loader_failures"].append(val_diag["loader_failures"])
 
             # Log to WandB in real-time
             try:
@@ -577,6 +630,12 @@ class SignNetTrainer:
                         "val/loss": val_loss,
                         "val/accuracy": val_acc,
                         "learning_rate": current_lr,
+                        "train/optimizer_steps": train_diag["optimizer_steps"],
+                        "train/expected_optimizer_steps": train_diag[
+                            "expected_optimizer_steps"
+                        ],
+                        "train/loader_failures": train_diag["loader_failures"],
+                        "val/loader_failures": val_diag["loader_failures"],
                     }
                 )
             except Exception:
@@ -591,6 +650,14 @@ class SignNetTrainer:
                 f"   Val   - Loss: {val_loss:.4f}, Acc: {val_acc:.4f} ({val_acc * 100:.2f}%)"
             )
             print(f"   LR: {current_lr:.6f}")
+            print(
+                "   Optimizer steps: "
+                f"{train_diag['optimizer_steps']}/{train_diag['expected_optimizer_steps']}"
+            )
+            print(
+                "   Loader failures: "
+                f"train={train_diag['loader_failures']}, val={val_diag['loader_failures']}"
+            )
 
             # Save best model
             is_best = val_acc > self.best_val_acc

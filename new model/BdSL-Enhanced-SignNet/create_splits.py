@@ -9,12 +9,13 @@ def parse_sample_name(sample_name: str) -> dict | None:
     parts = Path(sample_name).stem.split("__")
     if len(parts) != 5:
         return None
+    word, signer, session, repetition, grammar = [p.strip() for p in parts]
     return {
-        "word": parts[0],
-        "signer": parts[1],
-        "session": parts[2],
-        "repetition": parts[3],
-        "grammar": parts[4],
+        "word": word,
+        "signer": signer,
+        "session": session,
+        "repetition": repetition,
+        "grammar": grammar,
     }
 
 
@@ -228,14 +229,33 @@ def main() -> None:
 
     summary = {
         "mode": args.mode,
+        "seed": args.seed,
+        "train_ratio": args.train_ratio,
+        "val_ratio": args.val_ratio,
         "total": len(files),
         "train": len(train_files),
         "val": len(val_files),
         "test": len(test_files),
+        "split_files": {
+            "train": "train_samples.txt",
+            "val": "val_samples.txt",
+            "test": "test_samples.txt",
+        },
         "signer_distribution": {
             "train": count_signers(train_files),
             "val": count_signers(val_files),
             "test": count_signers(test_files),
+        },
+        "signer_partitions": {
+            "train": sorted(parse_signer_list(args.train_signers))
+            if args.mode == "signer-holdout"
+            else [],
+            "val": sorted(parse_signer_list(args.val_signers))
+            if args.mode == "signer-holdout"
+            else [],
+            "test": sorted(parse_signer_list(args.test_signers))
+            if args.mode == "signer-holdout"
+            else [],
         },
     }
     summary_path = output_dir / "split_summary.json"

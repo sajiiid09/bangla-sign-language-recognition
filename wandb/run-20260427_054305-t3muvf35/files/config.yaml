@@ -1,0 +1,127 @@
+_wandb:
+    value:
+        cli_version: 0.26.1
+        e:
+            dfim0oxruzk0gi3bvqidbvqnbzvzpumg:
+                args:
+                    - --base_dir
+                    - C:/Users/T2430397/Documents/bangla-sign-language-recognition-main
+                    - --epochs
+                    - "20"
+                    - --use_amp
+                    - --split_mode
+                    - signer_holdout
+                    - --loader_error_mode
+                    - strict
+                    - --gradient_accumulation_steps
+                    - "2"
+                    - --dropout
+                    - "0.2"
+                    - --weight_decay
+                    - "0.02"
+                    - --label_smoothing
+                    - "0.05"
+                    - --early_stopping_patience
+                    - "8"
+                    - --mixup_alpha
+                    - "0.0"
+                    - --checkpoint_subdir
+                    - signet_v2_holdout_fix
+                    - --num_workers
+                    - "0"
+                codePath: new model\BdSL-Enhanced-SignNet\train_signet_v2_optimized.py
+                codePathLocal: new model\BdSL-Enhanced-SignNet\train_signet_v2_optimized.py
+                cpu_count: 20
+                cpu_count_logical: 28
+                cudaVersion: "13.1"
+                disk:
+                    /:
+                        total: "999275098112"
+                        used: "245116301312"
+                email: aronno902553@gmail.com
+                executable: C:\Users\T2430397\Documents\bangla-sign-language-recognition-main\.venv\Scripts\python.exe
+                git:
+                    commit: 873fd4e95084aa8a344e7f2de087d52a70c5b376
+                    remote: https://github.com/sajiiid09/bangla-sign-language-recognition.git
+                gpu: NVIDIA GeForce RTX 4080 SUPER
+                gpu_count: 1
+                gpu_nvidia:
+                    - architecture: Ada
+                      cudaCores: 10240
+                      memoryTotal: "17171480576"
+                      name: NVIDIA GeForce RTX 4080 SUPER
+                      uuid: GPU-2a5c25d0-1f73-919b-fd8b-f6f0df709aaf
+                host: CSE-12B21L-D20
+                memory:
+                    total: "68470374400"
+                os: Windows-11-10.0.26200-SP0
+                program: C:\Users\T2430397\Documents\bangla-sign-language-recognition-main\new model\BdSL-Enhanced-SignNet\train_signet_v2_optimized.py
+                python: CPython 3.14.4
+                root: C:\Users\T2430397\Documents\bangla-sign-language-recognition-main
+                startedAt: "2026-04-27T12:43:05.734721Z"
+                writerId: dfim0oxruzk0gi3bvqidbvqnbzvzpumg
+        m: []
+        python_version: 3.14.4
+        t:
+            "1":
+                - 1
+                - 5
+                - 53
+            "2":
+                - 1
+                - 5
+                - 53
+            "3":
+                - 1
+                - 2
+                - 13
+                - 16
+            "4": 3.14.4
+            "5": 0.26.1
+            "8":
+                - 3
+            "12": 0.26.1
+            "13": windows-amd64
+batch_size:
+    value: 16
+checkpoint_subdir:
+    value: signet_v2_holdout_fix
+dropout:
+    value: 0.2
+early_stopping_patience:
+    value: 8
+epochs:
+    value: 20
+gradient_accumulation_steps:
+    value: 2
+label_smoothing:
+    value: 0.05
+learning_rate:
+    value: 0.0003
+loader_error_mode:
+    value: strict
+mixup_alpha:
+    value: 0
+num_classes:
+    value: 62
+seed:
+    value: 42
+split_mode:
+    value: signer_holdout
+split_signer_distribution:
+    value:
+        test:
+            S10: 601
+        train:
+            S04: 20
+            S05: 1143
+        val:
+            S02: 542
+split_summary_exists:
+    value: true
+split_summary_path:
+    value: C:\Users\T2430397\Documents\bangla-sign-language-recognition-main\Data\processed\new_model\split_summary.signer_holdout.json
+use_amp:
+    value: true
+weight_decay:
+    value: 0.02

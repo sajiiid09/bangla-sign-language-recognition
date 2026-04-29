@@ -106,7 +106,7 @@ class SignNetEvaluator:
             # Unpack batch
             body_pose = batch["body_pose"].to(self.device)
             attention_mask = batch["attention_mask"].to(self.device)
-            labels = batch["label"].squeeze().to(self.device)
+            labels = batch["label"].to(self.device).long().view(-1)
 
             left_hand = batch.get("left_hand")
             right_hand = batch.get("right_hand")
