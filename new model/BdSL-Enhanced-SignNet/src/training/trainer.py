@@ -61,6 +61,7 @@ class TrainingConfig:
 
     # Augmentation
     mixup_alpha: float = 0.2
+    emotion_loss_weight: float = 0.5
 
     # Paths
     base_dir: str = "/home/raco/Repos/bangla-sign-language-recognition"
@@ -107,7 +108,11 @@ class Lookahead(Optimizer):
 
     def step(self, closure=None):
         """Perform optimization step."""
+        # Mark the wrapper as having executed an optimizer step so LR schedulers
+        # can see the call order correctly when wrapped by Lookahead.
+        self._opt_called = True
         loss = self.optimizer.step(closure)
+        self.optimizer._opt_called = True
 
         self._la_step_count += 1
 
@@ -261,8 +266,10 @@ class SignNetTrainer:
         self.steps_per_epoch = max(
             1, math.ceil(len(train_loader) / config.gradient_accumulation_steps)
         )
+        # Bind the scheduler to the inner AdamW optimizer so PyTorch's step
+        # tracking matches the real optimizer step executed through Lookahead.
         self.scheduler = OneCycleLR(
-            self.optimizer,
+            self.optimizer.optimizer,
             max_lr=config.learning_rate * 2,
             epochs=config.epochs,
             steps_per_epoch=self.steps_per_epoch,
@@ -274,6 +281,7 @@ class SignNetTrainer:
 
         # Loss function
         self.criterion = nn.CrossEntropyLoss(label_smoothing=config.label_smoothing)
+        self.emotion_criterion = nn.CrossEntropyLoss(label_smoothing=config.label_smoothing)
 
         # Mixup
         self.mixup = Mixup(alpha=config.mixup_alpha)
@@ -317,6 +325,9 @@ class SignNetTrainer:
             body_pose = batch["body_pose"].to(self.device)
             attention_mask = batch["attention_mask"].to(self.device)
             labels = batch["label"].to(self.device).long().view(-1)
+            emotion_labels = batch.get("emotion_label")
+            if emotion_labels is not None:
+                emotion_labels = emotion_labels.to(self.device).long().view(-1)
 
             if "load_failed" in batch:
                 loader_failures += int(batch["load_failed"].view(-1).sum().item())
@@ -332,8 +343,19 @@ class SignNetTrainer:
             if face is not None:
                 face = face.to(self.device)
 
+            use_aux_emotion = (
+                hasattr(self.model, "emotion_classifier")
+                and getattr(self.model, "emotion_classifier") is not None
+                and emotion_labels is not None
+                and int(emotion_labels.min().item()) >= 0
+            )
+
             # Apply mixup with probability
-            apply_mixup = self.config.mixup_alpha > 0 and np.random.random() < 0.5
+            apply_mixup = (
+                self.config.mixup_alpha > 0
+                and np.random.random() < 0.5
+                and not use_aux_emotion
+            )
 
             if apply_mixup:
                 x_tuple = (body_pose, left_hand, right_hand, face)
@@ -343,16 +365,24 @@ class SignNetTrainer:
             # Forward pass with mixed precision
             if self.scaler is not None:
                 with torch.amp.autocast(device_type=self.device.type, enabled=True):
-                    logits = self.model(
-                        body_pose, left_hand, right_hand, face, attention_mask
-                    )
-
-                    if apply_mixup:
-                        loss = self.mixup.mixup_criterion(
-                            self.criterion, logits, labels, index, lam
+                    if use_aux_emotion:
+                        logits, emotion_logits = self.model.forward_with_aux(
+                            body_pose, left_hand, right_hand, face, attention_mask
                         )
+                        sign_loss = self.criterion(logits, labels)
+                        emotion_loss = self.emotion_criterion(emotion_logits, emotion_labels)
+                        loss = sign_loss + self.config.emotion_loss_weight * emotion_loss
                     else:
-                        loss = self.criterion(logits, labels)
+                        logits = self.model(
+                            body_pose, left_hand, right_hand, face, attention_mask
+                        )
+
+                        if apply_mixup:
+                            loss = self.mixup.mixup_criterion(
+                                self.criterion, logits, labels, index, lam
+                            )
+                        else:
+                            loss = self.criterion(logits, labels)
 
                     loss = loss / accumulation_steps
 
@@ -376,16 +406,24 @@ class SignNetTrainer:
                     optimizer_steps += 1
 
             else:
-                logits = self.model(
-                    body_pose, left_hand, right_hand, face, attention_mask
-                )
-
-                if apply_mixup:
-                    loss = self.mixup.mixup_criterion(
-                        self.criterion, logits, labels, index, lam
+                if use_aux_emotion:
+                    logits, emotion_logits = self.model.forward_with_aux(
+                        body_pose, left_hand, right_hand, face, attention_mask
                     )
+                    sign_loss = self.criterion(logits, labels)
+                    emotion_loss = self.emotion_criterion(emotion_logits, emotion_labels)
+                    loss = sign_loss + self.config.emotion_loss_weight * emotion_loss
                 else:
-                    loss = self.criterion(logits, labels)
+                    logits = self.model(
+                        body_pose, left_hand, right_hand, face, attention_mask
+                    )
+
+                    if apply_mixup:
+                        loss = self.mixup.mixup_criterion(
+                            self.criterion, logits, labels, index, lam
+                        )
+                    else:
+                        loss = self.criterion(logits, labels)
 
                 loss = loss / accumulation_steps
                 loss.backward()

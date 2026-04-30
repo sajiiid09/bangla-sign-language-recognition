@@ -102,16 +102,25 @@ def parse_metadata(video_path: str) -> Dict:
     if len(parts) != 5:
         return None
 
-    word, signer, session, repetition, grammar = [p.strip() for p in parts]
+    word, signer, session, repetition, emotion = [p.strip() for p in parts]
 
     return {
         "word": word,
         "signer": signer,
         "session": session,
         "repetition": repetition,
-        "grammar": grammar,
+        "emotion": emotion,
+        "grammar": emotion,
         "full_path": video_path,
     }
+
+
+def create_emotion_mapping(samples: List[Dict]) -> tuple:
+    """Create emotion to label and label to emotion mappings."""
+    all_emotions = sorted(set([s["emotion"] for s in samples]))
+    emotion_to_label = {emotion: idx for idx, emotion in enumerate(all_emotions)}
+    label_to_emotion = {idx: emotion for idx, emotion in enumerate(all_emotions)}
+    return emotion_to_label, label_to_emotion
 
 
 def main():
@@ -242,14 +251,19 @@ def main():
 
     all_metadata = train_metadata + val_metadata + test_metadata
     word_to_label, label_to_word = create_word_mapping(all_metadata)
+    emotion_to_label, label_to_emotion = create_emotion_mapping(all_metadata)
     num_classes = len(word_to_label)
+    num_emotions = len(emotion_to_label)
 
     print(f"\n📚 Classes: {num_classes} unique Bengali words")
+    print(f"   Emotions: {num_emotions} unique labels")
 
     # Save label mapping
     label_mapping = {
         "word_to_label": word_to_label,
         "label_to_word": {str(k): v for k, v in label_to_word.items()},
+        "emotion_to_label": emotion_to_label,
+        "label_to_emotion": {str(k): v for k, v in label_to_emotion.items()},
     }
     with open(checkpoint_dir / "label_mapping.json", "w", encoding="utf-8") as f:
         json.dump(label_mapping, f, indent=2, ensure_ascii=False)
@@ -305,6 +319,8 @@ def main():
                 "split_signer_distribution": split_summary.get("signer_distribution", {})
                 if split_summary is not None
                 else {},
+                "num_emotions": num_emotions,
+                "emotion_labels": label_to_emotion,
                 "loader_error_mode": args.loader_error_mode,
                 "gradient_accumulation_steps": max(1, args.gradient_accumulation_steps),
                 "checkpoint_subdir": args.checkpoint_subdir,
@@ -337,10 +353,11 @@ def main():
         val_samples=val_samples,
         test_samples=test_samples,
         word_to_label=word_to_label,
+        emotion_to_label=emotion_to_label,
         batch_size=args.batch_size,
         num_workers=num_workers,
         use_hands=True,
-        use_face=False,
+        use_face=True,
     )
 
     print(f"\n📦 Data loaders created:")
@@ -389,14 +406,16 @@ def main():
         early_stopping_patience=args.early_stopping_patience,
         gradient_clip_norm=0.5,      # More aggressive clipping
         gradient_accumulation_steps=max(1, args.gradient_accumulation_steps),
+        emotion_loss_weight=0.5,
         use_amp=args.use_amp,
         mixup_alpha=args.mixup_alpha,
         checkpoint_dir=str(checkpoint_dir),
     )
 
-    # Initialize model (Note: dataset now includes hand landmarks)
+    # Initialize model with body + hands + face and an auxiliary emotion head
     model = SignNetV2(
         num_classes=num_classes,
+        num_emotions=num_emotions,
         body_dim=data_config.body_dim,
         hand_dim=data_config.hand_dim,
         face_dim=data_config.face_dim,
@@ -406,18 +425,18 @@ def main():
         d_ff=training_config.d_ff,
         dropout=training_config.dropout,
         max_seq_length=data_config.max_seq_length,
-        use_face=False,
+        use_face=True,
         use_hands=True,
     )
 
-# Initialize OPTIMIZED model (Note: dataset only has body_pose)
+    # Initialize OPTIMIZED model (body + hands + face + emotion)
     print("\n🔧 OPTIMIZED MODEL CONFIGURATION:")
     print(f"   d_model: {training_config.d_model} (vs 128 in baseline)")
     print(f"   num_encoder_layers: {training_config.num_encoder_layers} (vs 4 in baseline)")
     print(f"   d_ff: {training_config.d_ff} (vs 512 in baseline)")
     print(f"   dropout: {training_config.dropout} (vs 0.2 in baseline)")
     print(f"   mixup_alpha: {training_config.mixup_alpha} (vs 0.2 in baseline)")
-    print(f"   Expected accuracy: 25-30% (vs 1.2% baseline)")
+    print(f"   Expected accuracy: improved sign + emotion learning")
     print(f"   Improvement: 20-25×")
     print()
 
@@ -455,15 +474,12 @@ def main():
     test_input = torch.randn(2, data_config.max_seq_length, data_config.body_dim).to(
         device
     )
+    test_left_hand = torch.randn(2, data_config.max_seq_length, data_config.hand_dim).to(device)
+    test_right_hand = torch.randn(2, data_config.max_seq_length, data_config.hand_dim).to(device)
+    test_face = torch.randn(2, data_config.max_seq_length, data_config.face_dim).to(device)
     test_mask = torch.ones(2, data_config.max_seq_length).to(device)
 
     # Prepare test hand inputs if model uses hands
-    test_left_hand = None
-    test_right_hand = None
-    if model.use_hands:
-        test_left_hand = torch.randn(2, data_config.max_seq_length, data_config.hand_dim).to(device)
-        test_right_hand = torch.randn(2, data_config.max_seq_length, data_config.hand_dim).to(device)
-
     with torch.no_grad():
         if device.type == "cuda" and args.use_amp:
             with torch.amp.autocast(device_type=device.type, enabled=True):
@@ -471,7 +487,7 @@ def main():
                     test_input,  # body_pose
                     test_left_hand,  # left_hand
                     test_right_hand,  # right_hand
-                    None,  # face
+                    test_face,  # face
                     test_mask,  # attention_mask
                 )
         else:
@@ -479,14 +495,14 @@ def main():
                 test_input,  # body_pose
                 test_left_hand,  # left_hand
                 test_right_hand,  # right_hand
-                None,  # face
+                test_face,  # face
                 test_mask,  # attention_mask
             )
 
     print(f"   Input shape: {test_input.shape}")
-    if test_left_hand is not None:
-        print(f"   Left hand shape: {test_left_hand.shape}")
-        print(f"   Right hand shape: {test_right_hand.shape}")
+    print(f"   Left hand shape: {test_left_hand.shape}")
+    print(f"   Right hand shape: {test_right_hand.shape}")
+    print(f"   Face shape: {test_face.shape}")
     print(f"   Output shape: {test_output.shape}")
     print(f"   ✅ Forward pass successful!")
 

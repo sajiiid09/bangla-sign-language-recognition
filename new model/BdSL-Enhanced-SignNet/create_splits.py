@@ -9,13 +9,14 @@ def parse_sample_name(sample_name: str) -> dict | None:
     parts = Path(sample_name).stem.split("__")
     if len(parts) != 5:
         return None
-    word, signer, session, repetition, grammar = [p.strip() for p in parts]
+    word, signer, session, repetition, emotion = [p.strip() for p in parts]
     return {
         "word": word,
         "signer": signer,
         "session": session,
         "repetition": repetition,
-        "grammar": grammar,
+        "emotion": emotion,
+        "grammar": emotion,
     }
 
 
