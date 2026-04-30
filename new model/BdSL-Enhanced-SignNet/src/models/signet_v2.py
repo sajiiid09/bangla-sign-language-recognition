@@ -465,6 +465,7 @@ class SignNetV2(nn.Module):
     def __init__(
         self,
         num_classes: int = 72,
+        num_emotions: Optional[int] = None,
         body_dim: int = 99,  # 33 landmarks * 3 coords
         hand_dim: int = 63,  # 21 landmarks * 3 coords
         face_dim: int = 1404,  # 468 landmarks * 3 coords
@@ -480,6 +481,7 @@ class SignNetV2(nn.Module):
         super().__init__()
 
         self.num_classes = num_classes
+        self.num_emotions = num_emotions
         self.d_model = d_model
         self.use_face = use_face
         self.use_hands = use_hands
@@ -555,6 +557,12 @@ class SignNetV2(nn.Module):
             d_model=d_model, num_classes=num_classes, dropout=dropout
         )
 
+        self.emotion_classifier = None
+        if num_emotions is not None and num_emotions > 0:
+            self.emotion_classifier = ClassificationHead(
+                d_model=d_model, num_classes=num_emotions, dropout=dropout
+            )
+
         # Initialize weights
         self._init_weights()
 
@@ -573,7 +581,7 @@ class SignNetV2(nn.Module):
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
 
-    def forward(
+    def _encode_backbone(
         self,
         body_pose: torch.Tensor,
         left_hand: Optional[torch.Tensor] = None,
@@ -581,19 +589,6 @@ class SignNetV2(nn.Module):
         face: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """
-        Forward pass of SignNet-V2.
-
-        Args:
-            body_pose: Body pose landmarks (batch, seq_len, body_dim)
-            left_hand: Left hand landmarks (batch, seq_len, hand_dim) or None
-            right_hand: Right hand landmarks (batch, seq_len, hand_dim) or None
-            face: Face landmarks (batch, seq_len, face_dim) or None
-            attention_mask: Attention mask for padding (batch, seq_len)
-
-        Returns:
-            Class logits (batch, num_classes)
-        """
         batch_size = body_pose.size(0)
 
         # Get sequence length from body pose
@@ -647,13 +642,57 @@ class SignNetV2(nn.Module):
         # Global temporal encoding
         x = self.global_encoder(x, transformer_mask)
 
-        # Use class token for classification
-        class_representation = x[:, 0]
+        return x[:, 0]
+
+    def forward(
+        self,
+        body_pose: torch.Tensor,
+        left_hand: Optional[torch.Tensor] = None,
+        right_hand: Optional[torch.Tensor] = None,
+        face: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """
+        Forward pass of SignNet-V2.
+
+        Args:
+            body_pose: Body pose landmarks (batch, seq_len, body_dim)
+            left_hand: Left hand landmarks (batch, seq_len, hand_dim) or None
+            right_hand: Right hand landmarks (batch, seq_len, hand_dim) or None
+            face: Face landmarks (batch, seq_len, face_dim) or None
+            attention_mask: Attention mask for padding (batch, seq_len)
+
+        Returns:
+            Class logits (batch, num_classes)
+        """
+        class_representation = self._encode_backbone(
+            body_pose, left_hand, right_hand, face, attention_mask
+        )
 
         # Classification
         logits = self.classifier(class_representation)
 
         return logits
+
+    def forward_with_aux(
+        self,
+        body_pose: torch.Tensor,
+        left_hand: Optional[torch.Tensor] = None,
+        right_hand: Optional[torch.Tensor] = None,
+        face: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+    ) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
+        """Forward pass returning sign logits and optional emotion logits."""
+        class_representation = self._encode_backbone(
+            body_pose, left_hand, right_hand, face, attention_mask
+        )
+        sign_logits = self.classifier(class_representation)
+        emotion_logits = (
+            self.emotion_classifier(class_representation)
+            if self.emotion_classifier is not None
+            else None
+        )
+        return sign_logits, emotion_logits
 
     def get_embedding(
         self,
@@ -664,40 +703,7 @@ class SignNetV2(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Get feature embedding for downstream tasks."""
-        batch_size = body_pose.size(0)
-        seq_length = body_pose.size(1)
-
-        # Encode each stream
-        stream_features = []
-        stream_lengths = [seq_length] * len(stream_features)
-
-        body_features = self.body_encoder(body_pose, seq_length)
-        stream_features.append(body_features)
-
-        if self.use_hands and left_hand is not None:
-            left_features = self.left_hand_encoder(left_hand, seq_length)
-            stream_features.append(left_features)
-
-        if self.use_hands and right_hand is not None:
-            right_features = self.right_hand_encoder(right_hand, seq_length)
-            stream_features.append(right_features)
-
-        if self.use_face and face is not None:
-            face_features = self.face_encoder(face, seq_length)
-            stream_features.append(face_features)
-
-        # Cross-stream fusion
-        fused = self.cross_stream_fusion(stream_features, stream_lengths)
-
-        # Add class token
-        class_tokens = self.class_token.expand(batch_size, -1, -1)
-        x = torch.cat([class_tokens, fused], dim=1)
-
-        # Apply encoders
-        x = self.hierarchical_encoder(x)
-        x = self.global_encoder(x)
-
-        return x[:, 0]  # Return class token embedding
+        return self._encode_backbone(body_pose, left_hand, right_hand, face, attention_mask)
 
 
 def count_parameters(model: nn.Module) -> Dict[str, int]:
