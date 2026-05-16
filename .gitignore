@@ -25,6 +25,15 @@ htmlcov/
 .env
 .venv
 *.log
+.wandb/
+wandb/
+tmp_face_diag/
+processed/
+new model/BdSL-Enhanced-SignNet/processed/
+new model/BdSL-Enhanced-SignNet/wandb/
+new model/BdSL-Enhanced-SignNet/models/*.task
+*.task
+*.mp4
 .DS_Store
 *.pkl
 *.pth
