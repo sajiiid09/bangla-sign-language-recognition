@@ -1,1 +1,0 @@
-{"_step":1,"data/train_batches":112,"data/train_malformed_names":0,"_timestamp":1.777380106364083e+09,"_runtime":1,"data/test_malformed_names":0,"data/test_batches":9,"data/val_batches":8,"_wandb":{"runtime":1},"data/val_malformed_names":0,"model/total_parameters":8856510}
